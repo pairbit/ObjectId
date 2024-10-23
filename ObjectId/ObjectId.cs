@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security;
+using System.Text;
 
 namespace System;
 
@@ -21,8 +22,8 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
 
     private static readonly short _pid = GetPid();
     private static readonly int _pid24 = _pid << 24;
-    private static readonly int _machinePid = (GetMachineXXHash() << 8) | ((_pid >> 8) & 0xff);
-    private static readonly int _machinePidReverse = BinaryPrimitives.ReverseEndianness((GetMachineXXHash() << 8) | ((_pid >> 8) & 0xff));
+    private static readonly int _machinePid = (GetMachineHash24() << 8) | ((_pid >> 8) & 0xff);
+    private static readonly int _machinePidReverse = BinaryPrimitives.ReverseEndianness(_machinePid);
     private static readonly long _random = CalculateRandomValue();
     private static readonly int _random24 = (int)(_random << 24);
     private static readonly int _random8Reverse = BinaryPrimitives.ReverseEndianness((int)(_random >> 8));
@@ -31,7 +32,7 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
     /// <summary>
     /// First 3 bytes of machine name hash
     /// </summary>
-    public static readonly int MachineHash24 = GetMachineXXHash();
+    public static readonly int MachineHash24 = GetMachineHash24();
     public static readonly ObjectId Empty = default;
     public static readonly ObjectId Min = new(0, 0, 0);
     public static readonly ObjectId Max = new(-1, -1, -1);
@@ -252,7 +253,7 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
         if (_machine0 != id._machine0) return _machine0 < id._machine0 ? -1 : 1;
         if (_machine1 != id._machine1) return _machine1 < id._machine1 ? -1 : 1;
         if (_machine2 != id._machine2) return _machine2 < id._machine2 ? -1 : 1;
-        
+
         if (_pid0 != id._pid0) return _pid0 < id._pid0 ? -1 : 1;
         if (_pid1 != id._pid1) return _pid1 < id._pid1 ? -1 : 1;
 
@@ -293,7 +294,7 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
     #endregion Public Methods
 
     #region Private Methods
-    
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool EqualsCore(in ObjectId left, in ObjectId right)
     {
@@ -305,7 +306,7 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
 
     private static long CalculateRandomValue()
     {
-        var seed = (int)DateTime.UtcNow.Ticks ^ GetMachineHash() ^ GetPid();
+        var seed = (int)DateTime.UtcNow.Ticks ^ GetMachineHashCode() ^ GetPid();
         var random = new Random(seed);
         var high = random.Next();
         var low = random.Next();
@@ -339,17 +340,18 @@ public readonly partial struct ObjectId : IComparable<ObjectId>, IEquatable<Obje
 #endif
     }
 
-    private static int GetMachineHash()
-    {
-        var machineName = Environment.MachineName;
-        return 0x00ffffff & machineName.GetHashCode(); // use first 3 bytes of hash
-    }
+    private static int GetMachineHashCode() => 0x00ffffff & Environment.MachineName.GetHashCode();
 
-    private static int GetMachineXXHash() => XXHash24(Environment.MachineName);
+    private static int GetMachineHash24() => Hash24(Environment.MachineName);
 
-    private static int XXHash24(string machineName)
+    private static int Hash24(string machineName)
     {
-        var hash = HashCode.Combine(machineName);
+        Span<byte> sha256 = stackalloc byte[32];
+
+        Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(machineName), sha256);
+
+        var hash = Unsafe.ReadUnaligned<int>(ref MemoryMarshal.GetReference(sha256));
+
         return 0x00ffffff & hash; // use first 3 bytes of hash
     }
 
